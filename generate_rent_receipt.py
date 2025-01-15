@@ -1,7 +1,16 @@
+import streamlit as st
 from fpdf import FPDF
-import json
 from datetime import datetime, timedelta
 import inflect
+import base64
+import json
+import os
+import uuid
+
+# Setup logging directory
+LOG_DIR = "logs"
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
 
 class RentReceiptGenerator:
     def __init__(self):
@@ -12,20 +21,20 @@ class RentReceiptGenerator:
         self.pdf.add_page()
         
         # Add decorative header line
-        self.pdf.set_draw_color(0, 0, 128)  # Navy blue color
+        self.pdf.set_draw_color(0, 0, 128)
         self.pdf.set_line_width(0.5)
         self.pdf.line(10, 10, 200, 10)
         
-        # Add header: House Rent Receipt
+        # Add header
         self.pdf.set_font("Arial", style="B", size=16)
-        self.pdf.set_text_color(0, 0, 128)  # Navy blue color
+        self.pdf.set_text_color(0, 0, 128)
         self.pdf.cell(200, 15, txt="HOUSE RENT RECEIPT", ln=True, align="C")
         
-        # Reset text color to black
+        # Reset text color
         self.pdf.set_text_color(0, 0, 0)
         
         # Add receipt number and date in a box
-        self.pdf.set_fill_color(240, 240, 250)  # Light blue background
+        self.pdf.set_fill_color(240, 240, 250)
         self.pdf.rect(10, 30, 190, 15, style='F')
         self.pdf.set_font("Arial", style="B", size=12)
         self.pdf.set_xy(10, 32)
@@ -34,7 +43,7 @@ class RentReceiptGenerator:
         # Add main content section
         self.pdf.ln(20)
         
-        # Receipt details in a structured format
+        # Receipt details
         self.pdf.set_font("Arial", style="B", size=12)
         self.pdf.cell(50, 10, txt="Received From:", ln=0)
         self.pdf.set_font("Arial", size=12)
@@ -78,21 +87,13 @@ class RentReceiptGenerator:
         self.pdf.cell(60, 10, txt="Signature", ln=1)
         self.pdf.set_font("Arial", size=12)
         self.pdf.cell(60, 10, txt=f"({owner_name})", ln=1)
-        
-        # # Add footer line
-        # self.pdf.set_draw_color(0, 0, 128)
-        # self.pdf.line(10, 275, 200, 275)
-        # self.pdf.set_font("Arial", style="I", size=8)
-        # self.pdf.set_xy(10, 278)
-        # self.pdf.cell(190, 5, txt="This is a computer-generated receipt and does not require physical signature.", align="C")
 
     def number_to_words(self, num):
         p = inflect.engine()
         return p.number_to_words(num, andword="").capitalize()
 
-    def save_pdf(self, filename):
-        self.pdf.output(filename)
-        print(f"Rent receipts saved as {filename}")
+    def get_pdf_bytes(self):
+        return self.pdf.output(dest='S').encode('latin-1')
 
 def generate_month_range(start_date, end_date):
     start = datetime.strptime(start_date, "%Y-%m-%d")
@@ -105,34 +106,90 @@ def generate_month_range(start_date, end_date):
         current = current.replace(day=1)
     return months
 
+def save_usage_log(config_data):
+    """Save the configuration to a JSON file in the logs directory"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4())[:8]
+    filename = f"receipt_config_{timestamp}_{unique_id}.json"
+    
+    # Add metadata to the config
+    config_data["generated_at"] = timestamp
+    config_data["request_id"] = unique_id
+    
+    filepath = os.path.join(LOG_DIR, filename)
+    with open(filepath, 'w') as f:
+        json.dump(config_data, f, indent=4)
+    
+    return filename
+
 def main():
-    # Load JSON config
-    with open("config.json", "r") as file:
-        config = json.load(file)
+    st.set_page_config(page_title="Rent Receipt Generator", layout="wide")
+    
+    # Add title and description
+    st.title("🏠 Rent Receipt Generator")
+    st.markdown("""
+    Generate professional rent receipts easily. Fill in the details below and download your receipts in PDF format.
+    """)
+    
+    # Create two columns for input fields
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Tenant Details")
+        tenant_name = st.text_input("Tenant Name")
+        amount = st.number_input("Monthly Rent Amount (₹)", min_value=0, step=1000)
+        start_date = st.date_input("Start Date")
+        end_date = st.date_input("End Date")
+        property_address = st.text_area("Property Address")
 
-    tenant_name = config["tenant_name"]
-    amount = config["amount"]
-    start_date = config["start_date"]
-    end_date = config["end_date"]
-    property_address = config["property_address"]
-    owner_name = config["owner_name"]
-    owner_address = config["owner_address"]
-    owner_pan = config["owner_pan"]
+    with col2:
+        st.subheader("Owner Details")
+        owner_name = st.text_input("Owner Name")
+        owner_address = st.text_area("Owner Address")
+        owner_pan = st.text_input("Owner PAN")
 
-    months = generate_month_range(start_date, end_date)
-    generator = RentReceiptGenerator()
+    if st.button("Generate Receipts"):
+        if all([tenant_name, amount, property_address, owner_name, owner_address, owner_pan]):
+            try:
+                # Prepare config data for logging
+                config_data = {
+                    "tenant_name": tenant_name,
+                    "amount": amount,
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": end_date.strftime("%Y-%m-%d"),
+                    "property_address": property_address,
+                    "owner_name": owner_name,
+                    "owner_address": owner_address,
+                    "owner_pan": owner_pan
+                }
+                
+                # Save usage log
+                log_filename = save_usage_log(config_data)
+                
+                # Generate receipts
+                months = generate_month_range(config_data["start_date"], config_data["end_date"])
+                generator = RentReceiptGenerator()
 
-    # Generate all receipts in a single PDF
-    for month in months:
-        month_start_date = datetime.strptime(f"01 {month}", "%d %B %Y").strftime("%d/%m/%Y")
-        generator.generate_receipt(
-            month_start_date, tenant_name, amount, month, property_address, 
-            owner_name, owner_address, owner_pan
-        )
+                for month in months:
+                    month_start_date = datetime.strptime(f"01 {month}", "%d %B %Y").strftime("%d/%m/%Y")
+                    generator.generate_receipt(
+                        month_start_date, tenant_name, amount, month, property_address,
+                        owner_name, owner_address, owner_pan
+                    )
 
-    # Save all receipts in a single PDF
-    output_filename = f"Rent_Receipts_{start_date}_to_{end_date}.pdf"
-    generator.save_pdf(output_filename)
+                # Get PDF bytes and create download button
+                pdf_bytes = generator.get_pdf_bytes()
+                b64_pdf = base64.b64encode(pdf_bytes).decode()
+                
+                # Create download button
+                href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="Rent_Receipts.pdf">📥 Download Rent Receipts PDF</a>'
+                st.markdown(href, unsafe_allow_html=True)
+                st.success(f"✅ Rent receipts generated successfully!")
+                
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+        else:
+            st.warning("Please fill in all the required fields.")
 
 if __name__ == "__main__":
     main()
