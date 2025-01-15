@@ -1,0 +1,10 @@
+{
+  "tenant_name": "John Doe",
+  "amount": 25000,
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "property_address": "123 Main St, City",
+  "owner_name": "Jane Smith",
+  "owner_address": "456 Oak Ave, City",
+  "owner_pan": "ABCDE1234F"
+}
